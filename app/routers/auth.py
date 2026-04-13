@@ -19,10 +19,11 @@ def registrar_usuario(datos: UsuarioCreate, db: Session = Depends(get_db)):
     if existe:
         raise HTTPException(status_code=400, detail="El email ya está registrado")
     nuevo = Usuario(
+        codigo = datos.codigo,
         nombre=datos.nombre,
         apellido=datos.apellido,
         email=datos.email,
-        contraseña=hash_password(datos.contraseña),
+        password=hash_password(datos.password),
         telefono=datos.telefono,
         fecha_registro=datetime.now(),
         id_rol=datos.id_rol,
@@ -38,8 +39,8 @@ def registrar_usuario(datos: UsuarioCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(datos: LoginRequest, db: Session = Depends(get_db)):
     usuario = db.query(Usuario).filter(Usuario.email == datos.email).first()
-    if not usuario or not verify_password(datos.contraseña, usuario.contraseña):
-        raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")
+    if not usuario or not verify_password(datos.password, usuario.password):
+        raise HTTPException(status_code=401, detail="Email o password incorrectos")
     if not usuario.estado:
         raise HTTPException(status_code=403, detail="Usuario inactivo")
     token = create_access_token({"sub": str(usuario.codigo), "rol": usuario.id_rol})
@@ -61,9 +62,9 @@ def cambiar_password(datos: CambiarPasswordRequest, db: Session = Depends(get_db
     usuario = db.query(Usuario).filter(Usuario.email == datos.email).first()
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    usuario.contraseña = hash_password(datos.nueva_contraseña)
+    usuario.password = hash_password(datos.new_password)
     db.commit()
-    return {"mensaje": "Contraseña actualizada correctamente"}
+    return {"mensaje": "Password actualizada correctamente"}
 
 
 # CU-04 Cerrar sesión

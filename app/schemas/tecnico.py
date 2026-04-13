@@ -23,6 +23,6 @@ class TecnicoResponse(BaseModel):
     longitud: Decimal
     telefono : str
     id_taller :int 
-    id_usuario : int 
+    id_usuario : str 
     class Config:
         from_attributes = True

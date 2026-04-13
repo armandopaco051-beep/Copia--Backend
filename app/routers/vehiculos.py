@@ -19,7 +19,7 @@ def crear_vehiculo(datos: VehiculoCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/usuario/{id_usuario}", response_model=List[VehiculoResponse])
-def listar_por_usuario(id_usuario: int, db: Session = Depends(get_db)):
+def listar_por_usuario(id_usuario: str, db: Session = Depends(get_db)):
     return db.query(Vehiculo).filter(Vehiculo.id_usuario == id_usuario).all()
 
 

@@ -33,7 +33,7 @@ class UsuarioCreate(BaseModel):
     nombre: str
     apellido : str 
     email: EmailStr
-    contraseña: str
+    password: str
     telefono :str 
     id_rol : int 
     
@@ -59,7 +59,7 @@ class UsuarioUpdate(BaseModel):
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    contraseña: str
+    password: str
 
 class Token(BaseModel): 
     access_token: str
@@ -71,7 +71,5 @@ class RecuperarPasswordRequest(BaseModel):
 
 class CambiarPasswordRequest(BaseModel): 
     email : EmailStr
-    nueva_contraseña : str
-    confirmar_contraseña : str
-    
-    
+    new_password: str
+    confirm_password: str

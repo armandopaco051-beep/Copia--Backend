@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth, usuarios, vehiculos, talleres, tecnicos
+from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes
+import app.models
 
 app = FastAPI(
     title=settings.app_name,
@@ -11,7 +12,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4200",
+        "http://127.0.0.1:4200"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -25,6 +29,7 @@ app.include_router(usuarios.permisos_router)
 app.include_router(vehiculos.router)
 app.include_router(talleres.router)
 app.include_router(tecnicos.router)
+app.include_router(incidentes.router)
 
 
 @app.get("/", tags=["Root"])

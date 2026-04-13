@@ -17,7 +17,7 @@ class Incidente(Base):
     id_categoria_problema = Column(Integer, ForeignKey("catalogo.categoria_problema.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     id_estado_incidente = Column(Integer, ForeignKey("catalogo.estado_incidente.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     id_vehiculo = Column(Integer, ForeignKey("clientes.vehiculo.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    codigo_usuario = Column(Integer, ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    codigo_usuario = Column(String(100), ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     historial = relationship("HistorialEstado", back_populates="incidente")
     asignaciones = relationship("Asignacion", back_populates="incidente")

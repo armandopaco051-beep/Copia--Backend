@@ -35,11 +35,11 @@ class Usuario(Base):
     __tablename__ = "usuario"
     __table_args__ = {"schema": "seguridad"}
     
-    codigo = Column(String(50), primary_key=True, index=True)
+    codigo = Column(String(100), primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     apellido = Column(String(100), nullable=False)
     email = Column(String(255), nullable=False)
-    contraseña = Column("contraseña", String(255), nullable=False)    
+    password = Column("contraseña", String(255), nullable=False)    
     telefono = Column(String(20), nullable=True)
     fecha_registro =Column(TIMESTAMP, server_default=func.now(), nullable=False)
     estado = Column(Boolean, default=True, nullable=False)

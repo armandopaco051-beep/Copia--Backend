@@ -8,7 +8,7 @@ class VehiculoCreate(BaseModel):
     placa :str
     marca : str
     año : str
-    id_usuario : int 
+    id_usuario : str 
 
 class VehiculoUpdate(BaseModel): 
     modelo : Optional[str] = None
@@ -24,7 +24,7 @@ class VehiculoResponse(BaseModel):
     marca: str
     año: str
     activo: bool
-    id_usuario: int
+    id_usuario: str
     class Config: 
         from_attributes = True
 
