@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
+from ipaddress import ip_address
 from typing import Optional
 
 from jose import jwt, JWTError
 from pwdlib import PasswordHash
-
+from app.models.seguridad import RolPermiso, Usuario, Rol, Permiso, Bitacora
 from app.config import settings
 
 password_hash = PasswordHash.recommended()
@@ -32,3 +33,33 @@ def decode_token(token: str):
         return payload
     except JWTError:
         return None
+# hace la consulta para obtener los permisos de un rol
+def get_permisos_usuario(db: Session, id_rol: int) ->List[str]:
+    "obtener la lista de permisos de un rol"
+    #hace la consulta para obtener los permisos de un rol
+    permisos = (
+        db.query(Permiso.nombre) 
+        .join(RolPermiso, RolPermiso.id_permiso == Permiso.id)
+        .filter(RolPermiso.id_rol == id_rol)
+        .all()
+    )
+    return [p.nombre for p in permisos]
+
+def registrar_bitacora(
+    db: Session,
+    codigo_usuario: str,
+    accion: str,
+    modulo :str,
+    descripcion: str,
+    ip: str = None
+): 
+    "Registrar en la bitacora"
+    entrada  = Bitacora(
+        codigo_usuario=codigo_usuario,
+        accion=accion,
+        modulo = modulo,
+        descripcion=descripcion,
+        ip_address =ip
+    )
+    db.add(entrada)
+    db.commit()

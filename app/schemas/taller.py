@@ -1,5 +1,5 @@
 import string
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 from decimal import Decimal
 from datetime import datetime
@@ -28,8 +28,7 @@ class TallerResponse(BaseModel):
     latitud: float
     longitud: float
     activo: bool
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class TallerUsuarioCreate(BaseModel):
     id_usuario: str

@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, TIMESTAMP
+from ipaddress import ip_address
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, TIMESTAMP, Text
 from app.database import Base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -46,6 +47,18 @@ class Usuario(Base):
     id_rol = Column(Integer, ForeignKey("seguridad.rol.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
     rol = relationship("Rol", back_populates="usuarios")
     vehiculos = relationship("Vehiculo", back_populates="usuario")
+    bitacora = relationship("Bitacora", back_populates="usuario")
 
-
+class Bitacora(Base): 
+    __tablename__ = "bitacora"
+    __table_args__ = {"schema": "seguridad"}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    codigo_usuario = Column(String(100), ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    accion = Column(String(255), nullable=False)
+    modulo = Column(String(100), nullable=False)
+    descripcion = Column(Text, nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    fecha = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    usuario = relationship("Usuario", back_populates="bitacora")
 

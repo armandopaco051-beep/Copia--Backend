@@ -1,14 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import Optional
 from decimal import Decimal
 from datetime import datetime
+import email
 
-
+# tenemos que modificar lo que es la creacion de la base de datos de la parte de tecnico.
 class TecnicoCreate(BaseModel):
+    codigo : str 
+    nombre : str 
     telefono: str
-    direccion: str
+    email : EmailStr
+    password :str 
     latidud: Decimal
     longitud: Decimal
+    id_taller :int 
 
 class TecnicoUpdate(BaseModel):
     telefono: Optional[str] = None
@@ -18,11 +23,12 @@ class TecnicoUpdate(BaseModel):
 
 class TecnicoResponse(BaseModel):
     codigo: int
+    nombre :Optional[str] = None
     disponibilidad: bool
+    email: EmailStr
     latitud: Decimal
     longitud: Decimal
     telefono : str
     id_taller :int 
-    id_usuario : str 
     class Config:
         from_attributes = True

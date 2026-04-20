@@ -11,7 +11,7 @@ from app.schemas.taller import (
 router = APIRouter(prefix="/talleres", tags=["Talleres"])
 
 
-@router.post("/", response_model=TallerResponse, status_code=201)
+@router.post("", response_model=TallerResponse, status_code=201)
 def crear_taller(datos: TallerCreate, db: Session = Depends(get_db)):
     nuevo = Taller(**datos.model_dump())
     db.add(nuevo)
@@ -20,7 +20,7 @@ def crear_taller(datos: TallerCreate, db: Session = Depends(get_db)):
     return nuevo
 
 
-@router.get("/", response_model=List[TallerResponse])
+@router.get("", response_model=List[TallerResponse])
 def listar_talleres(db: Session = Depends(get_db)):
     return db.query(Taller).filter(Taller.activo == True).all()
 

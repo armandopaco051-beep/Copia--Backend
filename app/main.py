@@ -1,15 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes
+from fastapi.staticfiles import StaticFiles
+from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes, bitacora,evidencias,ia,asignacion,dashboard
 import app.models
 
 app = FastAPI(
     title=settings.app_name,
     description="Backend - Plataforma Inteligente de Emergencias Vehiculares | Ciclo 1",
-    version="1.0.0"
+    version="1.0.0",
+    redirect_slashes=False  # ✅ ESTO EVITA EL 307    
 )
-
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -30,6 +32,11 @@ app.include_router(vehiculos.router)
 app.include_router(talleres.router)
 app.include_router(tecnicos.router)
 app.include_router(incidentes.router)
+app.include_router(bitacora.router)
+app.include_router(evidencias.router)
+app.include_router(ia.router)
+app.include_router(asignacion.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/", tags=["Root"])
@@ -40,3 +47,8 @@ def root():
         "docs": "/docs",
         "estado": "✅ Backend corriendo"
     }
+
+@app.get("/health", tags=["Health"])
+def health():
+    return {"status": "ok", "message": "Backend funcionando correctamente"}
+

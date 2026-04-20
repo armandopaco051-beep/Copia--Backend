@@ -1,5 +1,5 @@
 import string
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -7,13 +7,28 @@ from app.models.seguridad import Usuario, Rol, Permiso, RolPermiso
 from app.schemas.usuario import (
     UsuarioResponse, UsuarioUpdate,
     RolCreate, RolResponse,
-    PermisoCreate, PermisoResponse
+    PermisoCreate, PermisoResponse, AsignarRolRequest, AsignarPermisoRequest, CambiarRolRequest
 )
+from app.services.auth_service import get_permisos_usuario, registrar_bitacora, hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 roles_router = APIRouter(prefix="/roles", tags=["Roles"])
 permisos_router = APIRouter(prefix="/permisos", tags=["Permisos"])
 
+def build_response(usuario: Usuario, db : Session) -> dict: 
+    permisos  = get_permisos_usuario(db, usuario.id_rol) 
+    return {
+        "codigo": usuario.codigo,
+        "nombre": usuario.nombre,
+        "apellido": usuario.apellido,
+        "email": usuario.email,
+        "telefono": usuario.telefono,
+        "estado": usuario.estado,
+        "fecha_registro": usuario.fecha_registro,
+        "id_rol": usuario.id_rol,
+        "nombre_rol": usuario.rol.nombre if usuario.rol else "",
+        "permisos": permisos
+    }
 
 # CU-05 VER PERFIL 
 @router.get("/{codigo}", response_model = UsuarioResponse)
@@ -56,8 +71,31 @@ def desactivar_usuario(codigo: str, db : Session = Depends(get_db)):
     db.refresh(usuario)
     return {"mensaje:" "Usuario Desactivado"}
 
+#cambiar de rol a un usuario
+@router.put("/{codigo}/rol")
+def cambiar_rol_usuario(
+    codigo: str,
+    datos: CambiarRolRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    u = db.query(Usuario).filter(Usuario.codigo == codigo).first()
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    rol_anterior = u.id_rol
+    u.id_rol = datos.id_rol
+    db.commit()
+    registrar_bitacora(
+        db, codigo, "CAMBIO_ROL", "USUARIOS",
+        f"Rol cambiado de {rol_anterior} a {datos.id_rol}",
+        request.client.host if request.client else None
+    )
+    return {"mensaje": "Rol actualizado correctamente"
+}
+
+
 # CU-06 GESTIONAR ROLES 
-@roles_router.get("/", response_model=RolResponse)
+@roles_router.get("/", response_model=List[RolResponse])
 def listar_roles(db : Session = Depends(get_db)):
     return db.query(Rol).all()
 # nuevo 
@@ -79,6 +117,53 @@ def eliminar_rol(id_rol: int , db : Session = Depends(get_db)):
     db.delete(rol)
     db.commit()
     return {"mensaje": "Rol eliminado"}
+
+#permisos de rol
+# hace consulta para obtener los permisos de un rol
+@roles_router.get("/{id_rol}/permisos", response_model=List[PermisoResponse])
+def permisos_del_rol(id_rol: int, db: Session = Depends(get_db)):
+    permisos = (
+        db.query(Permiso)
+        .join(RolPermiso, RolPermiso.id_permiso == Permiso.id)
+        .filter(RolPermiso.id_rol == id_rol)
+        .all()
+    )
+    return permisos
+
+#agregar permiso rol
+def agregar_permiso_rol(
+    id_rol: int,
+    datos: AsignarPermisoRequest,
+    db: Session = Depends(get_db)
+):
+    existe = db.query(RolPermiso).filter(
+        RolPermiso.id_rol == id_rol,
+        RolPermiso.id_permiso == datos.id_permiso
+    ).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="Permiso ya asignado")
+    db.add(RolPermiso(id_rol=id_rol, id_permiso=datos.id_permiso))
+    db.commit()
+    return {"mensaje": "Permiso agregado al rol"
+}
+# quitar permiso de rol
+@roles_router.delete("/{id_rol}/permisos/{id_permiso}")
+def quitar_permiso_rol(
+    id_rol: int,
+    id_permiso: int,
+    db: Session = Depends(get_db)
+):
+    rp = db.query(RolPermiso).filter(
+        RolPermiso.id_rol == id_rol,
+        RolPermiso.id_permiso == id_permiso
+    ).first()
+    if not rp:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    db.delete(rp)
+    db.commit()
+    return {"mensaje": "Permiso quitado del rol"}
+
+
 
 # CU-07 GESTIONAR PERMISOS
 @permisos_router.get("/", response_model=List[PermisoResponse])
@@ -104,3 +189,12 @@ def asignar_permiso(id_rol: int, id_permiso: int, db: Session = Depends(get_db))
     db.add(RolPermiso(id_rol=id_rol, id_permiso=id_permiso))
     db.commit()
     return {"mensaje": "Permiso asignado correctamente"}
+# eliminar permiso
+@permisos_router.delete("/{id_permiso}")
+def eliminar_permiso(id_permiso: int, db: Session = Depends(get_db)):
+    p = db.query(Permiso).filter(Permiso.id == id_permiso).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Permiso no encontrado")
+    db.delete(p)
+    db.commit()
+    return {"mensaje": "Permiso eliminado"}

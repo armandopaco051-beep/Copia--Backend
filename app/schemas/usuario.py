@@ -1,5 +1,5 @@
 import email
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 from typing import Optional
 from datetime import datetime
 
@@ -11,9 +11,8 @@ class RolCreate(Rol_base):
 
 class RolResponse(Rol_base):
     id: int
-    
-    class Config:
-        from_attributes = True
+    nombre: str
+    model_config = ConfigDict(from_attributes=True)
 
 class PermisoBase(BaseModel):
     id :str
@@ -73,3 +72,25 @@ class CambiarPasswordRequest(BaseModel):
     email : EmailStr
     new_password: str
     confirm_password: str
+
+class BitacoraResponse(BaseModel): 
+    id: int 
+    codigo_usuario: str
+    accion: str
+    modulo: str
+    descripcion: Optional[str] = None
+    ip_address: Optional[str] = None
+    fecha: datetime
+    nombre_usuario : Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+class AsignarRolRequest(BaseModel):
+    id_rol: int
+
+class AsignarPermisoRequest(BaseModel):
+    id_permiso: int
+
+class CambiarRolRequest(BaseModel):
+    id_rol: int
