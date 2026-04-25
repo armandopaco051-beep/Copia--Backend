@@ -1,31 +1,129 @@
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+
 from app.database import get_db
 from app.models.operaciones import Incidente, Asignacion
 from app.models.talleres import Taller, Tecnico
-from app.models.seguridad import Usuario
+from app.models.seguridad import Usuario, Bitacora
 
-router  = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def nombre_dia_es(fecha):
+    dias = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    return dias[fecha.weekday()]
+
+
+def nombre_categoria(codigo: int) -> str:
+    mapa = {
+        1: "Batería",
+        2: "Llanta",
+        3: "Motor",
+        4: "Choque",
+        5: "Otros"
+    }
+    return mapa.get(codigo, "Otros")
+
 
 @router.get("/admin-plataforma")
 def dashboard_admin(db: Session = Depends(get_db)):
     """Dashboard para Admin Plataforma"""
+
     total_incidentes = db.query(Incidente).count()
+
     pendientes = db.query(Incidente).filter(
-        Incidente.id_estado_incidente == 1).count()
+        Incidente.id_estado_incidente == 1
+    ).count()
+
     en_proceso = db.query(Incidente).filter(
-        Incidente.id_estado_incidente == 2).count()
+        Incidente.id_estado_incidente == 2
+    ).count()
+
     atendidos = db.query(Incidente).filter(
-        Incidente.id_estado_incidente == 3).count()
+        Incidente.id_estado_incidente == 3
+    ).count()
+
     total_talleres = db.query(Taller).filter(Taller.activo == True).count()
+
     tecnicos_disponibles = db.query(Tecnico).filter(
-        Tecnico.disponibilidad == True).count()
+        Tecnico.disponibilidad == True
+    ).count()
+
+    total_tecnicos = db.query(Tecnico).count()
     total_usuarios = db.query(Usuario).count()
 
     # Últimos incidentes
     ultimos = db.query(Incidente).order_by(
-        Incidente.fecha_reporte.desc()).limit(10).all()
+        Incidente.fecha_reporte.desc()
+    ).limit(10).all()
+
+    # -----------------------------
+    # ACTIVIDAD RECIENTE (BITÁCORA)
+    # -----------------------------
+    movimientos = (
+        db.query(Bitacora, Usuario)
+        .outerjoin(Usuario, Usuario.codigo == Bitacora.codigo_usuario)
+        .order_by(Bitacora.fecha.desc())   # si en tu modelo no se llama fecha, cámbialo aquí
+        .limit(8)
+        .all()
+    )
+
+    actividad_reciente = []
+    for b, u in movimientos:
+        nombre_usuario = "Sistema"
+        if u:
+            nombre_usuario = f"{u.nombre} {u.apellido}".strip()
+
+        actividad_reciente.append({
+            "id": b.id,
+            "accion": b.accion,
+            "modulo": b.modulo,
+            "descripcion": b.descripcion,
+            "usuario": nombre_usuario,
+            "fecha": b.fecha   # si en tu modelo no se llama fecha, cámbialo aquí
+        })
+
+    # ------------------------------------
+    # TENDENCIA SEMANAL (ÚLTIMOS 7 DÍAS)
+    # ------------------------------------
+    hoy = datetime.now().date()
+    hace_6_dias = hoy - timedelta(days=6)
+
+    incidentes_semana = db.query(Incidente).filter(
+        Incidente.fecha_reporte >= hace_6_dias
+    ).all()
+
+    conteo_por_fecha = defaultdict(int)
+    for inc in incidentes_semana:
+        fecha = inc.fecha_reporte.date()
+        conteo_por_fecha[fecha] += 1
+
+    tendencia_semanal = []
+    for i in range(6, -1, -1):
+        fecha = hoy - timedelta(days=i)
+        tendencia_semanal.append({
+            "dia": nombre_dia_es(fecha),
+            "fecha": str(fecha),
+            "total": conteo_por_fecha.get(fecha, 0)
+        })
+
+    # ------------------------------------
+    # TIPO DE EMERGENCIA (ÚLTIMOS 7 DÍAS)
+    # ------------------------------------
+    conteo_categoria = Counter()
+    for inc in incidentes_semana:
+        conteo_categoria[nombre_categoria(inc.id_categoria_problema)] += 1
+
+    tipo_emergencia = [
+        {
+            "categoria": categoria,
+            "total": total
+        }
+        for categoria, total in conteo_categoria.most_common(5)
+    ]
 
     return {
         "stats": {
@@ -35,44 +133,61 @@ def dashboard_admin(db: Session = Depends(get_db)):
             "atendidos": atendidos,
             "total_talleres": total_talleres,
             "tecnicos_disponibles": tecnicos_disponibles,
+            "total_tecnicos": total_tecnicos,
             "total_usuarios": total_usuarios
         },
-        "ultimos_incidentes": [{
-            "codigo": i.codigo,
-            "descripcion": i.descripcion,
-            "id_categoria": i.id_categoria_problema,
-            "id_prioridad": i.id_prioridad,
-            "id_estado": i.id_estado_incidente,
-            "fecha_reporte": i.fecha_reporte,
-            "latitud": float(i.latitud),
-            "longitud": float(i.longitud)
-        } for i in ultimos]
+        "ultimos_incidentes": [
+            {
+                "codigo": i.codigo,
+                "descripcion": i.descripcion,
+                "id_categoria": i.id_categoria_problema,
+                "id_prioridad": i.id_prioridad,
+                "id_estado": i.id_estado_incidente,
+                "fecha_reporte": i.fecha_reporte,
+                "latitud": float(i.latitud),
+                "longitud": float(i.longitud)
+            }
+            for i in ultimos
+        ],
+        "actividad_reciente": actividad_reciente,
+        "tendencia_semanal": tendencia_semanal,
+        "tipo_emergencia": tipo_emergencia
     }
+
 
 @router.get("/admin-taller/{id_taller}")
 def dashboard_taller(id_taller: int, db: Session = Depends(get_db)):
     """CU-16: Dashboard para Admin Taller"""
+
     asignaciones = db.query(Asignacion).filter(
-        Asignacion.id_taller == id_taller).all()
+        Asignacion.id_taller == id_taller
+    ).all()
 
     ids_incidentes = [a.id_incidente for a in asignaciones]
 
     total = len(ids_incidentes)
+
     pendientes = db.query(Asignacion).filter(
         Asignacion.id_taller == id_taller,
-        Asignacion.id_estado_asignacion == 1).count()
+        Asignacion.id_estado_asignacion == 1
+    ).count()
+
     aceptadas = db.query(Asignacion).filter(
         Asignacion.id_taller == id_taller,
-        Asignacion.id_estado_asignacion == 2).count()
+        Asignacion.id_estado_asignacion == 2
+    ).count()
+
     completadas = db.query(Asignacion).filter(
         Asignacion.id_taller == id_taller,
-        Asignacion.id_estado_asignacion == 5).count()
+        Asignacion.id_estado_asignacion == 5
+    ).count()
 
     tecnicos = db.query(Tecnico).filter(
-        Tecnico.id_taller == id_taller).all()
+        Tecnico.id_taller == id_taller
+    ).all()
+
     disponibles = sum(1 for t in tecnicos if t.disponibilidad)
 
-    # Solicitudes pendientes con detalle
     asig_pendientes = db.query(Asignacion).filter(
         Asignacion.id_taller == id_taller,
         Asignacion.id_estado_asignacion == 1
@@ -81,7 +196,9 @@ def dashboard_taller(id_taller: int, db: Session = Depends(get_db)):
     solicitudes = []
     for a in asig_pendientes:
         inc = db.query(Incidente).filter(
-            Incidente.codigo == a.id_incidente).first()
+            Incidente.codigo == a.id_incidente
+        ).first()
+
         if inc:
             solicitudes.append({
                 "id_asignacion": a.id,

@@ -1,8 +1,6 @@
-import string
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
-from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, time
 
 
 class TallerCreate(BaseModel):
@@ -11,6 +9,9 @@ class TallerCreate(BaseModel):
     direccion: str
     latitud: float
     longitud: float
+    horario_inicio: Optional[str] = "08:00"
+    horario_fin: Optional[str] = "18:00"
+
 
 class TallerUpdate(BaseModel):
     nombre: Optional[str] = None
@@ -19,6 +20,10 @@ class TallerUpdate(BaseModel):
     latitud: Optional[float] = None
     longitud: Optional[float] = None
     activo: Optional[bool] = None
+    horario_inicio: Optional[str] = None
+    horario_fin: Optional[str] = None
+    usuario_id: Optional[str] = None
+
 
 class TallerResponse(BaseModel):
     codigo: int
@@ -28,13 +33,12 @@ class TallerResponse(BaseModel):
     latitud: float
     longitud: float
     activo: bool
+    estado_registro: str
+    observacion_admin: Optional[str] = None
+    fecha_solicitud: Optional[datetime] = None
+    fecha_respuesta: Optional[datetime] = None
+    horario_inicio: Optional[time] = None
+    horario_fin: Optional[time] = None
+    usuario_id: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
-
-class TallerUsuarioCreate(BaseModel):
-    id_usuario: str
-    codigo_taller: int
-    fecha_asignacion: datetime  
-
-class TallerUsuarioResponse(TallerUsuarioCreate):
-    class Config:
-        from_attributes = True

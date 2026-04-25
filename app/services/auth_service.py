@@ -6,9 +6,9 @@ from jose import jwt, JWTError
 from pwdlib import PasswordHash
 from app.models.seguridad import RolPermiso, Usuario, Rol, Permiso, Bitacora
 from app.config import settings
+from sqlalchemy.orm import Session
 
 password_hash = PasswordHash.recommended()
-
 
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
@@ -45,21 +45,27 @@ def get_permisos_usuario(db: Session, id_rol: int) ->List[str]:
     )
     return [p.nombre for p in permisos]
 
+
+
 def registrar_bitacora(
     db: Session,
-    codigo_usuario: str,
+    codigo_usuario: Optional[str],
     accion: str,
-    modulo :str,
+    modulo: str,
     descripcion: str,
-    ip: str = None
-): 
-    "Registrar en la bitacora"
-    entrada  = Bitacora(
+    ip_address: Optional[str] = None,
+    codigo_tecnico: Optional[str] = None,
+    id_taller: Optional[int] = None
+):
+    nuevo = Bitacora(
         codigo_usuario=codigo_usuario,
+        codigo_tecnico=codigo_tecnico,
+        id_taller=id_taller,
         accion=accion,
-        modulo = modulo,
+        modulo=modulo,
         descripcion=descripcion,
-        ip_address =ip
+        ip_address=ip_address
     )
-    db.add(entrada)
-    db.commit()
+    db.add(nuevo)
+    db.flush()
+    return nuevo

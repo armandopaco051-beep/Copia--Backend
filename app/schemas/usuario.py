@@ -64,6 +64,7 @@ class Token(BaseModel):
     access_token: str
     token_type: str
     usuario: UsuarioResponse
+    
 
 class RecuperarPasswordRequest(BaseModel): 
     email : EmailStr
@@ -73,16 +74,18 @@ class CambiarPasswordRequest(BaseModel):
     new_password: str
     confirm_password: str
 
-class BitacoraResponse(BaseModel): 
-    id: int 
-    codigo_usuario: str
+class BitacoraResponse(BaseModel):
+    id: int
+    codigo_usuario: Optional[str] = None
+    codigo_tecnico: Optional[str] = None
+    id_taller: Optional[int] = None
     accion: str
     modulo: str
     descripcion: Optional[str] = None
     ip_address: Optional[str] = None
     fecha: datetime
-    nombre_usuario : Optional[str] = None
-    
+    nombre_usuario: Optional[str] = None
+
     class Config:
         from_attributes = True
 

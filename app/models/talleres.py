@@ -1,43 +1,52 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, TIMESTAMP, Numeric, Float
-from app.database import Base
+from sqlite3 import Time
+from sqlite3.dbapi2 import Timestamp
+from sqlalchemy import (
+    Column, Integer, String, Boolean, ForeignKey,
+    TIMESTAMP, Float, Text, func, Time
+)
 from sqlalchemy.orm import relationship
+from app.database import Base
 
-class Taller(Base): 
-    __tablename__= "taller"
-    __table_args__ = {"schema":"talleres"}
-    
+
+class Taller(Base):
+    __tablename__ = "taller"
+    __table_args__ = {"schema": "talleres"}
+
     codigo = Column(Integer, primary_key=True, index=True)
     nombre = Column(String(100), nullable=False)
     telefono = Column(String(20), nullable=False)
-    direccion = Column(String(200), nullable=False)
+    direccion = Column(Text, nullable=False)
     latitud = Column(Float, nullable=False)
     longitud = Column(Float, nullable=False)
     activo = Column(Boolean, default=True, nullable=False)
+    estado_registro = Column(String(20), nullable=False, default="pendiente")
+    observacion_admin = Column(Text, nullable=True)
+    fecha_solicitud = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    fecha_respuesta = Column(TIMESTAMP, nullable=True)
+    horario_inicio = Column(Time, nullable=True)
+    horario_fin = Column(Time, nullable=True)
+    usuario_id = Column(String(100), ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
 
     tecnicos = relationship("Tecnico", back_populates="taller")
-    taller_usuarios = relationship("TallerUsuario", back_populates="taller")
 
-class TallerUsuario(Base):
-    __tablename__ = "taller_usuario"
-    __table_args__ = {"schema": "talleres"}
-    id_usuario = Column(String(100), ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
-    codigo_taller = Column(Integer, ForeignKey("talleres.taller.codigo", onupdate="CASCADE", ondelete="CASCADE"), primary_key=True)
-    fecha_asignacion = Column(TIMESTAMP, nullable=False)
-    
-    taller = relationship("Taller", back_populates="taller_usuarios")
-
-class Tecnico(Base): 
+class Tecnico(Base):
     __tablename__ = "tecnico"
     __table_args__ = {"schema": "talleres"}
 
-    codigo = Column(Integer, primary_key=True, index=True)
+    codigo = Column(String(100), primary_key=True, index=True)   # CI
+    nombre = Column(String(100), nullable=False)
+    email = Column(String(100), nullable=False, unique=True)     # CI también
+    password = Column(String(255), nullable=False)               # hash del CI
     disponibilidad = Column(Boolean, nullable=False, default=True)
     latitud = Column(Float, nullable=False)
     longitud = Column(Float, nullable=False)
     telefono = Column(String(100), nullable=False)
-    id_taller = Column(Integer, ForeignKey("talleres.taller.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    id_usuario = Column(String(100), ForeignKey("seguridad.usuario.codigo", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-
+    id_taller = Column(
+        Integer,
+        ForeignKey("talleres.taller.codigo", onupdate="CASCADE", ondelete="CASCADE"),
+        nullable=False
+    )
+    id_rol = Column(Integer, nullable=False, default=3)
     taller = relationship("Taller", back_populates="tecnicos")
 
 

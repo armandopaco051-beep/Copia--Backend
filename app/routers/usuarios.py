@@ -67,8 +67,9 @@ def desactivar_usuario(codigo: str, db : Session = Depends(get_db)):
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     usuario.activo = False
+    db.delete(usuario)
     db.commit()
-    db.refresh(usuario)
+    # db.refresh(usuario)
     return {"mensaje:" "Usuario Desactivado"}
 
 #cambiar de rol a un usuario

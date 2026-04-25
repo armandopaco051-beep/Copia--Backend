@@ -7,12 +7,15 @@ from app.schemas.usuario import (
     Token, RecuperarPasswordRequest, CambiarPasswordRequest
 
 )
+from app.schemas.taller import TallerCreate
+from app.models.talleres import Taller
 
 from app.services.auth_service import (
     hash_password, verify_password, create_access_token , get_permisos_usuario, registrar_bitacora
     )
 
 from datetime import datetime
+from fastapi.security import OAuth2PasswordRequestForm
 
 router = APIRouter(prefix="/auth", tags=["Autenticación - CU01 al CU04"])
 
@@ -101,9 +104,33 @@ def login(datos: LoginRequest, request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=403, detail="Usuario no autorizado entrar desde el movil")
     permisos = get_permisos_usuario(db,usuario.id_rol)
     token = create_access_token({"sub": str(usuario.codigo), "rol": usuario.id_rol , "permisos": permisos})
+    id_taller_bitacora = None
+    accion_bitacora = "LOGIN_USUARIO"
+    modulo_bitacora = "USUARIOS"
+
+    if usuario.id_rol == 1:
+        accion_bitacora = "LOGIN_ADMIN_PLATAFORMA"
+        modulo_bitacora = "USUARIOS"
+
+    elif usuario.id_rol == 2:
+        accion_bitacora = "LOGIN_ADMIN_TALLER"
+        modulo_bitacora = "TALLERES"
+    elif usuario.id_rol == 4:
+        accion_bitacora = "LOGIN_CLIENTE"
+        modulo_bitacora = "CLIENTES"
+    print(Taller.__table__.columns.keys())
+    taller = db.query(Taller).filter(Taller.usuario_id == usuario.codigo).first()
+    if taller:
+        id_taller_bitacora = taller.codigo
+
     registrar_bitacora(
-        db , usuario.codigo, "LOGIN", "AUTH", "Login exitoso", request.client.host
-         if request.client else None
+    db=db,
+    codigo_usuario=usuario.codigo,
+    accion=accion_bitacora,
+    modulo=modulo_bitacora,
+    descripcion=f"Inicio de sesión del usuario {usuario.codigo}",
+    ip_address=request.client.host if request.client else None,
+    id_taller=id_taller_bitacora
     )
     return {"access_token": token, "token_type": "bearer", "usuario": build_usuario_response(usuario, db)}
 
@@ -143,4 +170,78 @@ def cambiar_password(datos: CambiarPasswordRequest, db: Session = Depends(get_db
 def logout():
     return {"mensaje": "Sesión cerrada correctamente"}
 
+ # el admin_crea un usuario en gestion de usuario 
+@router.post("/registro-admin-taller/usuario")
+def registrar_usuario_admin_taller(datos: dict, db: Session = Depends(get_db)):
+    existe = db.query(Usuario).filter(Usuario.codigo == datos["codigo"]).first()
+    if existe:
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+
+    nuevo_usuario = Usuario(
+        codigo=datos["codigo"],
+        nombre=datos["nombre"],
+        apellido=datos["apellido"],
+        email=datos["email"],
+        password=hash_password(datos["password"]),
+        telefono=datos["telefono"],
+        id_rol=2,   # admin_taller
+        estado=True,
+        fecha_registro=datetime.now()
+    )
+
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+
+    return {
+        "mensaje": "Usuario admin_taller creado",
+        "codigo_usuario": nuevo_usuario.codigo
+    }
     
+# el admin_crea un taller en gestion de taller 
+@router.post("/registro-admin-taller/taller/{codigo_usuario}")
+def registrar_taller_para_admin(
+    codigo_usuario: str,
+    datos: TallerCreate,
+    db: Session = Depends(get_db)
+):
+    usuario = db.query(Usuario).filter(Usuario.codigo == codigo_usuario).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    nuevo_taller = Taller(
+        nombre=datos.nombre,
+        telefono=datos.telefono,
+        direccion=datos.direccion,
+        latitud=datos.latitud,
+        longitud=datos.longitud,
+        activo=True,
+        estado_registro="aprobado",
+        horario_inicio=datos.horario_inicio,
+        horario_fin=datos.horario_fin,
+        usuario_id=usuario.codigo
+    )
+
+    db.add(nuevo_taller)
+    db.commit()
+    db.refresh(nuevo_taller)
+
+    return {
+        "mensaje": "Taller creado correctamente",
+        "codigo_taller": nuevo_taller.codigo,
+        "codigo_usuario": codigo_usuario
+    }
+
+# LOGIN PARA ANGULAR / FRONTEND
+@router.post("/token", response_model=Token)
+def login_swagger(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    request: Request = None,
+    db: Session = Depends(get_db)
+):
+    usuario = db.query(Usuario).filter(Usuario.email == form_data.username).first()
+
+    if not usuario or not verify_password(form_data.password, usuario.password):
+        raise HTTPException(status_code=401, detail="Email o password incorrectos")
+
+    return _hacer_login(usuario, request, db)

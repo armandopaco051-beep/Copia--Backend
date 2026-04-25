@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from fastapi.staticfiles import StaticFiles
-from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes, bitacora,evidencias,ia,asignacion,dashboard
+from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes, bitacora,evidencias,ia,asignacion,dashboard,solicitudes
 import app.models
 
 app = FastAPI(
@@ -37,6 +37,8 @@ app.include_router(evidencias.router)
 app.include_router(ia.router)
 app.include_router(asignacion.router)
 app.include_router(dashboard.router)
+app.include_router(solicitudes.router)
+
 
 
 @app.get("/", tags=["Root"])
