@@ -16,10 +16,13 @@ from app.schemas.tecnico import (
 )
 from app.services.auth_service import hash_password, verify_password, create_access_token
 from app.config import settings
+from datetime import datetime
+from sqlalchemy import func
+from app.models.operaciones import Asignacion, Incidente
 
 
 router = APIRouter(prefix="/tecnicos", tags=["Técnicos"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
 def get_current_usuario(
@@ -52,6 +55,48 @@ def get_taller_admin(usuario: Usuario, db: Session):
         raise HTTPException(status_code=404, detail="No tienes un taller asociado")
     return taller
 
+# ✅ CAMBIO: helper específico para técnico logueado
+def get_current_tecnico(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token inválido"
+    )
+
+    try:
+        payload = jwt.decode(
+            token,
+            settings.secret_key,
+            algorithms=[settings.algorithm]
+        )
+
+        codigo: str = payload.get("sub")
+        tipo: str = payload.get("tipo")
+        rol = payload.get("rol")
+
+        if codigo is None:
+            raise credentials_exception
+
+        # ✅ CAMBIO: opcional, pero ayuda a validar que sea técnico
+        if tipo != "tecnico" and rol != 3:
+            raise HTTPException(
+                status_code=403,
+                detail="No autorizado como técnico"
+            )
+
+    except JWTError:
+        raise credentials_exception
+
+    tecnico = db.query(Tecnico).filter(
+        Tecnico.codigo == codigo
+    ).first()
+
+    if not tecnico:
+        raise credentials_exception
+
+    return tecnico
 
 # =========================
 # LOGIN TÉCNICO
@@ -286,12 +331,7 @@ def listar_por_taller(id_taller: int, db: Session = Depends(get_db)):
     return db.query(Tecnico).filter(Tecnico.id_taller == id_taller).all()
 
 
-@router.get("/{codigo}", response_model=TecnicoResponse)
-def obtener_tecnico(codigo: str, db: Session = Depends(get_db)):
-    tecnico = db.query(Tecnico).filter(Tecnico.codigo == codigo).first()
-    if not tecnico:
-        raise HTTPException(status_code=404, detail="Técnico no encontrado")
-    return tecnico
+
 
 
 @router.patch("/{codigo}", response_model=TecnicoResponse)
@@ -317,3 +357,247 @@ def eliminar_tecnico(codigo: str, db: Session = Depends(get_db)):
     db.delete(tecnico)
     db.commit()
     return {"mensaje": "Técnico eliminado"}
+
+# ✅ CAMBIO: nombres simples para mostrar en frontend
+def nombre_estado_asignacion(id_estado: int) -> str:
+    estados = {
+        1: "Pendiente",
+        2: "Aceptada",
+        3: "Rechazada",
+        4: "Asignada a técnico",
+        5: "En camino",
+        6: "Finalizada",
+        7: "Cancelada",
+        8: "Sin taller disponible"
+    }
+    return estados.get(id_estado, "Desconocido")
+
+
+# ✅ CAMBIO: categorías según tu catálogo base
+def nombre_categoria(id_categoria: int) -> str:
+    categorias = {
+        1: "Batería descargada",
+        2: "Llanta pinchada",
+        3: "Falla de motor",
+        4: "Sobrecalentamiento",
+        5: "Accidente leve",
+        6: "Falta de combustible",
+        7: "Cerrajería vehicular",
+        8: "No arranca",
+        9: "Falla eléctrica",
+        10: "Otro problema"
+    }
+    return categorias.get(id_categoria, "Otro problema")
+
+
+# ✅ CAMBIO: arma respuesta común para incidente del técnico
+def build_incidente_tecnico_response(asignacion: Asignacion, db: Session):
+    incidente = db.query(Incidente).filter(
+        Incidente.codigo == asignacion.id_incidente
+    ).first()
+
+    if not incidente:
+        return None
+
+    cliente = db.query(Usuario).filter(
+        Usuario.codigo == incidente.codigo_usuario
+    ).first()
+
+    return {
+        "id_asignacion": asignacion.id,
+        "id_incidente": incidente.codigo,
+        "categoria": nombre_categoria(incidente.id_categoria_problema),
+        "descripcion": incidente.descripcion,
+        "cliente": f"{cliente.nombre} {cliente.apellido}".strip() if cliente else "Cliente no encontrado",
+        "telefono": cliente.telefono if cliente else "",
+        "fecha": asignacion.fecha_asignacion,
+        "estado": nombre_estado_asignacion(asignacion.id_estado_asignacion),
+        "latitud": float(incidente.latitud),
+        "longitud": float(incidente.longitud),
+        "id_estado_asignacion": asignacion.id_estado_asignacion
+    }
+
+# ✅ CAMBIO: dashboard real del técnico logueado
+@router.get("/dashboard")
+def dashboard_tecnico(
+    tecnico: Tecnico = Depends(get_current_tecnico),
+    db: Session = Depends(get_db)
+):
+    asignaciones = db.query(Asignacion).filter(
+        Asignacion.id_tecnico == tecnico.codigo
+    ).all()
+
+    activos = len([
+        a for a in asignaciones
+        if a.id_estado_asignacion in [4, 5]
+    ])
+
+    finalizados = len([
+        a for a in asignaciones
+        if a.id_estado_asignacion == 6
+    ])
+
+    hoy = db.query(Asignacion).filter(
+        Asignacion.id_tecnico == tecnico.codigo,
+        func.date(Asignacion.fecha_asignacion) == date.today()
+    ).count()
+
+    return {
+        "activos": activos,
+        "finalizados": finalizados,
+        "hoy": hoy,
+
+        # ✅ CAMBIO: por ahora fijo, luego se puede calcular con calificaciones reales
+        "calificacion": 5.0,
+
+        "tecnico": {
+            "codigo": tecnico.codigo,
+            "nombre": tecnico.nombre,
+            "telefono": tecnico.telefono,
+            "disponibilidad": tecnico.disponibilidad,
+            "id_taller": tecnico.id_taller
+        }
+    }
+# ✅ CAMBIO: incidente actual asignado al técnico
+@router.get("/asignacion-actual")
+def asignacion_actual_tecnico(
+    tecnico: Tecnico = Depends(get_current_tecnico),
+    db: Session = Depends(get_db)
+):
+    asignacion = db.query(Asignacion).filter(
+        Asignacion.id_tecnico == tecnico.codigo,
+        Asignacion.id_estado_asignacion.in_([4, 5])
+    ).order_by(
+        Asignacion.fecha_asignacion.desc()
+    ).first()
+
+    if not asignacion:
+        return None
+
+    return build_incidente_tecnico_response(asignacion, db)
+# ✅ CAMBIO: historial real del técnico
+@router.get("/historial")
+def historial_tecnico(
+    tecnico: Tecnico = Depends(get_current_tecnico),
+    db: Session = Depends(get_db)
+):
+    asignaciones = db.query(Asignacion).filter(
+        Asignacion.id_tecnico == tecnico.codigo
+    ).order_by(
+        Asignacion.fecha_asignacion.desc()
+    ).all()
+
+    resultado = []
+
+    for asignacion in asignaciones:
+        item = build_incidente_tecnico_response(asignacion, db)
+        if item:
+            resultado.append(item)
+
+    return resultado
+# ✅ CAMBIO: técnico inicia ruta hacia el cliente
+@router.put("/{id_asignacion}/iniciar-ruta")
+def iniciar_ruta(
+    id_asignacion: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    asignacion = db.query(Asignacion).filter(
+        Asignacion.id == id_asignacion
+    ).first()
+
+    if not asignacion:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+
+    if asignacion.id_estado_asignacion != 4:
+        raise HTTPException(
+            status_code=400,
+            detail="La asignación debe estar asignada a un técnico antes de iniciar ruta"
+        )
+
+    asignacion.id_estado_asignacion = 5
+    asignacion.observacion = "Técnico en camino al cliente"
+
+    registrar_bitacora(
+        db=db,
+        codigo_usuario=None,
+        codigo_tecnico=asignacion.id_tecnico,
+        accion="INICIAR_RUTA",
+        modulo="ASIGNACION",
+        descripcion=f"El técnico inició ruta para la asignación {asignacion.id}",
+        ip_address=request.client.host if request.client else None,
+        id_taller=asignacion.id_taller
+    )
+
+    db.commit()
+    db.refresh(asignacion)
+
+    return {
+        "mensaje": "Ruta iniciada correctamente",
+        "id_asignacion": asignacion.id,
+        "id_estado_asignacion": asignacion.id_estado_asignacion
+    }
+# ✅ CAMBIO: técnico finaliza el servicio
+@router.put("/{id_asignacion}/finalizar")
+def finalizar_servicio(
+    id_asignacion: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    asignacion = db.query(Asignacion).filter(
+        Asignacion.id == id_asignacion
+    ).first()
+
+    if not asignacion:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+
+    if asignacion.id_estado_asignacion not in [4, 5]:
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se puede finalizar una asignación activa o en camino"
+        )
+
+    tecnico = db.query(Tecnico).filter(
+        Tecnico.codigo == asignacion.id_tecnico
+    ).first()
+
+    incidente = db.query(Incidente).filter(
+        Incidente.codigo == asignacion.id_incidente
+    ).first()
+
+    asignacion.id_estado_asignacion = 6
+    asignacion.observacion = "Servicio finalizado por el técnico"
+
+    if tecnico:
+        tecnico.disponibilidad = True
+
+    if incidente:
+        incidente.id_estado_incidente = 4  # ajusta si tu estado finalizado usa otro número
+        incidente.fecha_cierre = datetime.now()
+
+    registrar_bitacora(
+        db=db,
+        codigo_usuario=None,
+        codigo_tecnico=asignacion.id_tecnico,
+        accion="FINALIZAR_SERVICIO",
+        modulo="ASIGNACION",
+        descripcion=f"El técnico finalizó la asignación {asignacion.id}",
+        ip_address=request.client.host if request.client else None,
+        id_taller=asignacion.id_taller
+    )
+
+    db.commit()
+    db.refresh(asignacion)
+
+    return {
+        "mensaje": "Servicio finalizado correctamente",
+        "id_asignacion": asignacion.id,
+        "id_estado_asignacion": asignacion.id_estado_asignacion
+    }
+
+@router.get("/{codigo}", response_model=TecnicoResponse)
+def obtener_tecnico(codigo: str, db: Session = Depends(get_db)):
+    tecnico = db.query(Tecnico).filter(Tecnico.codigo == codigo).first()
+    if not tecnico:
+        raise HTTPException(status_code=404, detail="Técnico no encontrado")
+    return tecnico

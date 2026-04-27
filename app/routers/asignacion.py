@@ -9,6 +9,7 @@ from app.models.talleres import Taller, Tecnico
 from app.services.auth_service import registrar_bitacora
 import math
 from app.schemas.asignacion import ResponderAsignacion, AsignacionCreate, AsignarTecnicoRequest
+
 from app.models.seguridad import Usuario
 router =  APIRouter(prefix="/asignacion", tags=["Asignacion"])
 
@@ -490,10 +491,9 @@ def asignaciones_del_taller(
 
     return resultado
 
-@router.put("/{id_asignacion}/tecnico/${codigoTecnico}")
+@router.put("/{id_asignacion}/tecnico/{codigo_tecnico}")
 def asignar_tecnico_a_asignacion(
     id_asignacion: int,
-    codigo_tecnico: str,
     datos: AsignarTecnicoRequest,
     request: Request,
     db: Session = Depends(get_db)
@@ -509,7 +509,7 @@ def asignar_tecnico_a_asignacion(
         )
 
     tecnico = db.query(Tecnico).filter(
-        Tecnico.codigo == codigo_tecnico,
+        Tecnico.codigo == datos.codigo_tecnico,
         Tecnico.id_taller == asignacion.id_taller,
         Tecnico.disponibilidad == True
     ).first()
@@ -543,4 +543,101 @@ def asignar_tecnico_a_asignacion(
         "mensaje": "Técnico asignado correctamente",
         "id_asignacion": asignacion.id,
         "id_tecnico": tecnico.codigo
+    }
+@router.put("/{id_asignacion}/iniciar-ruta")
+def iniciar_ruta(
+    id_asignacion: int ,
+    request : Request,
+    db: Session= Depends(get_db)
+): 
+    asignacion = db.query(Asignacion).filter(Asignacion.id == id_asignacion).first() 
+    if not asignacion: 
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+    if asignacion.id_estado_asignacion != 4:
+        raise HTTPException(status_code=400, detail="La asignación no está en estado 'asignada_tecnico'")
+    
+    asignacion.id_estado_asignacion = 5  # en_ruta
+    asignacion.observacion = "Tecnico en camino al Cliente";
+
+    incidente = db.query(Incidente).filter(Incidente.codigo == asignacion.id_incidente).first()
+
+    if incidente: 
+        #ajusta este numero segun tu catologo de estado de incidente
+        incidente.id_estado_incidente=2
+
+    registrar_bitacora(
+        db=db,
+        codigo_usuario=None,
+        codigo_tecnico=asignacion.id_tecnico,
+        accion="INICIAR_RUTA",
+        modulo="ASIGNACION",
+        descripcion=f"Se inició la ruta para la asignación {asignacion.id}",
+        ip_address=request.client.host if request.client else None,
+        id_taller=asignacion.id_taller
+    )
+
+    db.commit()
+    db.refresh(asignacion)
+
+    return {
+        "mensaje": "Ruta iniciada correctamente",
+        "id_asignacion": asignacion.id
+    }
+
+@router.put("/{id_asignacion}/finalizar")
+def finalizar_servicio(
+    id_asignacion: int,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    asignacion = db.query(Asignacion).filter(
+        Asignacion.id == id_asignacion
+    ).first()
+
+    if not asignacion:
+        raise HTTPException(status_code=404, detail="Asignación no encontrada")
+
+    if asignacion.id_estado_asignacion not in [4, 5]:
+        raise HTTPException(
+            status_code=400,
+            detail="Solo se puede finalizar una asignación activa"
+        )
+
+    tecnico = db.query(Tecnico).filter(
+        Tecnico.codigo == asignacion.id_tecnico
+    ).first()
+
+    incidente = db.query(Incidente).filter(
+        Incidente.codigo == asignacion.id_incidente
+    ).first()
+
+    asignacion.id_estado_asignacion = 6
+    asignacion.observacion = "Servicio finalizado por el técnico"
+
+    if tecnico:
+        tecnico.disponibilidad = True
+
+    if incidente:
+        # Ajusta este número según tu catálogo de estado_incidente
+        incidente.id_estado_incidente = 4
+        incidente.fecha_cierre = datetime.now()
+
+    registrar_bitacora(
+        db=db,
+        codigo_usuario=None,
+        codigo_tecnico=asignacion.id_tecnico,
+        id_taller=asignacion.id_taller,
+        accion="FINALIZAR_SERVICIO",
+        modulo="ASIGNACION",
+        descripcion=f"El técnico finalizó la asignación {asignacion.id}",
+        ip_address=request.client.host if request.client else None
+    )
+
+    db.commit()
+    db.refresh(asignacion)
+
+    return {
+        "mensaje": "Servicio finalizado correctamente",
+        "id_asignacion": asignacion.id,
+        "id_estado_asignacion": asignacion.id_estado_asignacion
     }

@@ -311,15 +311,72 @@ def registrar_taller_para_admin(
     }
 
 # LOGIN PARA ANGULAR / FRONTEND
-@router.post("/token", response_model=Token)
+@router.post("/token")
 def login_swagger(
     form_data: OAuth2PasswordRequestForm = Depends(),
     request: Request = None,
     db: Session = Depends(get_db)
 ):
-    usuario = db.query(Usuario).filter(Usuario.email == form_data.username).first()
+    """
+    Login especial para Swagger Authorize.
+    Swagger manda username/password como formulario.
+    Aquí aceptamos usuario normal o técnico.
+    """
 
-    if not usuario or not verify_password(form_data.password, usuario.password):
-        raise HTTPException(status_code=401, detail="Email o password incorrectos")
+    identificador = form_data.username.strip()
+    password = form_data.password
 
-    return _hacer_login(usuario, request, db)
+    # 1. Buscar primero en USUARIO por email o código
+    usuario = db.query(Usuario).filter(
+        or_(
+            Usuario.email == identificador,
+            Usuario.codigo == identificador
+        )
+    ).first()
+
+    if usuario:
+        if not verify_password(password, usuario.password):
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+
+        if not usuario.estado:
+            raise HTTPException(status_code=403, detail="Usuario inactivo")
+
+        permisos = get_permisos_usuario(db, usuario.id_rol)
+
+        token = create_access_token({
+            "sub": str(usuario.codigo),
+            "rol": usuario.id_rol,
+            "tipo": "usuario",
+            "permisos": permisos
+        })
+
+        return {
+            "access_token": token,
+            "token_type": "bearer"
+        }
+
+    # 2. Si no existe en usuario, buscar en TÉCNICO por código o email
+    tecnico = db.query(Tecnico).filter(
+        or_(
+            Tecnico.codigo == identificador,
+            Tecnico.email == identificador
+        )
+    ).first()
+
+    if tecnico:
+        if not verify_password(password, tecnico.password):
+            raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+
+        token = create_access_token({
+            "sub": tecnico.codigo,
+            "rol": tecnico.id_rol,
+            "tipo": "tecnico",
+            "permisos": []
+        })
+
+        return {
+            "access_token": token,
+            "token_type": "bearer"
+        }
+
+    raise HTTPException(status_code=401, detail="Credenciales incorrectas")

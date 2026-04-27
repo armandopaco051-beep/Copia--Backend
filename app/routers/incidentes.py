@@ -7,14 +7,15 @@ from app.database import get_db
 from app.models.operaciones import Incidente , Asignacion
 from app.schemas.incidente import IncidenteCreate, IncidenteUpdate, IncidenteResponse
 from app.models.talleres import Taller
-from app.routers.asignacion import asignar_siguiente_taller
+from app.routers.asignacion import crear_asignacion_automatica
+from fastapi import Request
 
 router = APIRouter(prefix="/incidentes", tags=["Incidentes - CU10"])
 
 
 # CU-10 — Crear incidente (reporte de emergencia)
 @router.post("/", response_model=IncidenteResponse, status_code=201)
-def crear_incidente(datos: IncidenteCreate, db: Session = Depends(get_db)):
+def crear_incidente(datos: IncidenteCreate, db: Session = Depends(get_db), request: Request = None):
     # 1. Crear el incidente
     nuevo = Incidente(
         descripcion=datos.descripcion,
@@ -34,7 +35,7 @@ def crear_incidente(datos: IncidenteCreate, db: Session = Depends(get_db)):
     db.flush()
 
     # ✅ CAMBIO: envía la emergencia al taller más cercano
-    asignacion = asignar_siguiente_taller(db, nuevo)
+    asignacion = crear_asignacion_automatica(id_incidente=nuevo.codigo, request=request, db= db)
 
     if asignacion:
         # ✅ Opcional: cambiar estado del incidente si tienes estado "en búsqueda/asignado"

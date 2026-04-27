@@ -14,6 +14,6 @@ class ResponderAsignacion(BaseModel):
     aceptada: bool
     observacion: str = ""
 
-class AsignarTecnicoRequest(BaseModel): 
-    codigo_tecnico : str 
+class AsignarTecnicoRequest(BaseModel):
+    codigo_tecnico: str
     observacion : Optional[str] = None 
