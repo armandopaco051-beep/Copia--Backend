@@ -444,7 +444,7 @@ def asignaciones_del_taller(
     # 1 pendiente, 2 aceptada, 4 asignada a técnico, 5 en camino
     asignaciones = db.query(Asignacion).filter(
         Asignacion.id_taller == id_taller,
-        Asignacion.id_estado_asignacion.in_([1, 2, 4, 5])
+        Asignacion.id_estado_asignacion.in_([1, 2, 4, 5,6])
     ).order_by(Asignacion.fecha_asignacion.desc()).all()
 
     resultado = []

@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from fastapi.staticfiles import StaticFiles
 from app.routers import auth, usuarios, vehiculos, talleres, tecnicos,incidentes, bitacora,evidencias,ia,asignacion,dashboard,solicitudes, tracking
+import os 
 
-import app.models
 
 app = FastAPI(
     title=settings.app_name,
@@ -41,6 +41,10 @@ app.include_router(dashboard.router)
 app.include_router(solicitudes.router)
 app.include_router(tracking.router)
 
+os.makedirs("uploads/imagenes", exist_ok=True)
+os.makedirs("uploads/audios", exist_ok=True)
+
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 
 @app.get("/", tags=["Root"])
