@@ -104,3 +104,79 @@ def listar_incidentes(db: Session = Depends(get_db)):
     return db.query(Incidente).order_by(
         Incidente.fecha_reporte.desc()
     ).all()
+
+from fastapi import HTTPException, Depends
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from app.database import get_db
+
+
+@router.get("/{id_incidente}/seguimiento")
+def obtener_seguimiento_incidente(
+    id_incidente: int,
+    db: Session = Depends(get_db)
+):
+    sql = text("""
+        SELECT 
+            i.codigo AS id_incidente,
+            COALESCE(ei.nombre, 'Reporte recibido') AS estado_incidente,
+
+            a.id_estado_asignacion,
+            ea.nombre AS estado_asignacion,
+
+            ta.nombre AS taller_nombre,
+
+            a.id_tecnico AS tecnico_codigo,
+            CONCAT(COALESCE(u.nombre, ''), ' ', COALESCE(u.apellido, '')) AS tecnico_nombre,
+            COALESCE(te.telefono, u.telefono) AS tecnico_telefono,
+            te.latitud AS tecnico_latitud,
+            te.longitud AS tecnico_longitud
+
+        FROM operaciones.incidente i
+
+        LEFT JOIN catalogo.estado_incidente ei 
+            ON ei.id = i.id_estado_incidente
+
+        LEFT JOIN operaciones.asignacion a 
+            ON a.id_incidente = i.codigo
+
+        LEFT JOIN catalogo.estado_asignacion ea 
+            ON ea.id = a.id_estado_asignacion
+
+        LEFT JOIN talleres.tecnico te 
+            ON te.codigo::text = a.id_tecnico::text
+
+        LEFT JOIN seguridad.usuario u 
+            ON u.codigo::text = a.id_tecnico::text
+
+        LEFT JOIN talleres.taller ta 
+            ON ta.codigo = a.id_taller
+
+        WHERE i.codigo = :id_incidente
+
+        ORDER BY a.fecha_asignacion DESC NULLS LAST
+        LIMIT 1
+    """)
+
+    row = db.execute(sql, {"id_incidente": id_incidente}).mappings().first()
+
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Incidente no encontrado"
+        )
+
+    return {
+        "id_incidente": row["id_incidente"],
+        "estado_incidente": row["estado_incidente"],
+        "id_estado_asignacion": row["id_estado_asignacion"],
+        "estado_asignacion": row["estado_asignacion"],
+        "taller_nombre": row["taller_nombre"],
+        "tecnico": {
+            "codigo": row["tecnico_codigo"],
+            "nombre": row["tecnico_nombre"],
+            "telefono": row["tecnico_telefono"],
+            "latitud": float(row["tecnico_latitud"]) if row["tecnico_latitud"] is not None else None,
+            "longitud": float(row["tecnico_longitud"]) if row["tecnico_longitud"] is not None else None,
+        }
+    }

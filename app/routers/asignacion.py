@@ -9,7 +9,7 @@ from app.models.talleres import Taller, Tecnico
 from app.services.auth_service import registrar_bitacora
 import math
 from app.schemas.asignacion import ResponderAsignacion, AsignacionCreate, AsignarTecnicoRequest
-
+from sqlalchemy import text
 from app.models.seguridad import Usuario
 router =  APIRouter(prefix="/asignacion", tags=["Asignacion"])
 
@@ -364,69 +364,168 @@ def aceptar_asignacion(
         "id_taller": asignacion.id_taller,
         "estado": asignacion.id_estado_asignacion
     }
+
+def buscar_siguiente_taller_para_incidente(
+    db: Session,
+    id_incidente: int
+):
+    sql = text("""
+        SELECT 
+            t.codigo AS id_taller,
+            t.nombre AS taller_nombre,
+            t.usuario_id AS id_usuario_taller,
+            (
+                6371 * acos(
+                    cos(radians(i.latitud)) *
+                    cos(radians(t.latitud)) *
+                    cos(radians(t.longitud) - radians(i.longitud)) +
+                    sin(radians(i.latitud)) *
+                    sin(radians(t.latitud))
+                )
+            ) AS distancia_km
+        FROM operaciones.incidente i
+        JOIN talleres.taller t
+            ON t.activo = true
+        WHERE i.codigo = :id_incidente
+          AND t.latitud IS NOT NULL
+          AND t.longitud IS NOT NULL
+
+          -- Evita mandar otra vez al mismo taller que ya rechazó
+          AND t.codigo NOT IN (
+              SELECT a.id_taller
+              FROM operaciones.asignacion a
+              WHERE a.id_incidente = :id_incidente
+          )
+
+        ORDER BY distancia_km ASC
+        LIMIT 1
+    """)
+
+    return db.execute(sql, {"id_incidente": id_incidente}).mappings().first()
 @router.put("/{id_asignacion}/rechazar")
 def rechazar_asignacion(
     id_asignacion: int,
-    payload: dict,
     db: Session = Depends(get_db)
 ):
-    asignacion = db.query(Asignacion).filter(
-        Asignacion.id == id_asignacion
-    ).first()
+    # 1. Buscar la asignación actual
+    asignacion = db.execute(text("""
+        SELECT 
+            id,
+            id_incidente,
+            id_taller,
+            id_tecnico,
+            id_estado_asignacion
+        FROM operaciones.asignacion
+        WHERE id = :id_asignacion
+    """), {"id_asignacion": id_asignacion}).mappings().first()
 
     if not asignacion:
-        raise HTTPException(status_code=404, detail="Asignación no encontrada")
-
-    if asignacion.id_estado_asignacion != 1:
         raise HTTPException(
-            status_code=400,
-            detail="Solo se puede rechazar una solicitud pendiente"
+            status_code=404,
+            detail="Asignación no encontrada"
         )
 
-    observacion = payload.get(
-        "observacion",
-        "Solicitud rechazada por el taller"
+    id_incidente = asignacion["id_incidente"]
+
+    # 2. Marcar asignación actual como rechazada
+    # CAMBIA este ID según tu tabla catalogo.estado_asignacion
+    ID_ESTADO_RECHAZADO = 5
+
+    db.execute(text("""
+        UPDATE operaciones.asignacion
+        SET id_estado_asignacion = :estado
+        WHERE id = :id_asignacion
+    """), {
+        "estado": ID_ESTADO_RECHAZADO,
+        "id_asignacion": id_asignacion
+    })
+
+    # 3. Buscar siguiente taller cercano
+    siguiente_taller = buscar_siguiente_taller_para_incidente(
+        db,
+        id_incidente
     )
 
-    # ✅ CAMBIO: marcar la asignación actual como rechazada
-    asignacion.id_estado_asignacion = 3  # 3 = Rechazada
-    asignacion.observacion = observacion
+    if not siguiente_taller:
+        # Si no hay más talleres, actualizar incidente como sin disponibilidad
+        db.execute(text("""
+            UPDATE operaciones.incidente
+            SET id_estado_incidente = id_estado_incidente
+            WHERE codigo = :id_incidente
+        """), {"id_incidente": id_incidente})
 
-    incidente = db.query(Incidente).filter(
-        Incidente.codigo == asignacion.id_incidente
-    ).first()
-
-    if not incidente:
-        raise HTTPException(status_code=404, detail="Incidente no encontrado")
-
-    # ✅ CAMBIO:
-    # Buscar siguiente taller más cercano que aún no haya recibido este incidente.
-    nueva_asignacion = asignar_siguiente_taller(db, incidente)
-
-    if not nueva_asignacion:
-        # ✅ CAMBIO: no hay más talleres disponibles
         db.commit()
 
         return {
-            "mensaje": "Solicitud rechazada. No hay más talleres disponibles.",
-            "sin_taller_disponible": True,
-            "id_incidente": incidente.codigo
+            "ok": True,
+            "mensaje": "Solicitud rechazada. No hay más talleres cercanos disponibles.",
+            "reasignado": False
         }
+
+    # 4. Crear nueva asignación para el siguiente taller
+    # CAMBIA este ID según tu tabla catalogo.estado_asignacion
+    ID_ESTADO_PENDIENTE = 1
+
+    nueva_asignacion = db.execute(text("""
+        INSERT INTO operaciones.asignacion (
+            id_incidente,
+            id_taller,
+            id_tecnico,
+            id_estado_asignacion,
+            fecha_asignacion
+        )
+        VALUES (
+            :id_incidente,
+            :id_taller,
+            NULL,
+            :estado,
+            NOW()
+        )
+        RETURNING id
+    """), {
+        "id_incidente": id_incidente,
+        "id_taller": siguiente_taller["id_taller"],
+        "estado": ID_ESTADO_PENDIENTE
+    }).mappings().first()
+
+    # 5. Crear notificación para el nuevo taller
+    # Ajusta los nombres de columnas según tu tabla notificaciones.notificacion
+    #db.execute(text("""
+    #    INSERT INTO notificaciones.notificacion (
+    #        id_incidente,
+    #        codigo_usuario,
+    #        titulo,
+    #        mensaje,
+    #        leida,
+      #      fecha_creacion
+        #)
+       # :codigo_usuario,
+       # :titulo,
+       # :mensaje,
+       # false,
+       # NOW()
+  #      )
+   # """), {
+    #    "id_incidente": id_incidente,
+     #   "codigo_usuario": siguiente_taller["id_usuario_taller"],
+      #  "titulo": "Nueva solicitud de emergencia",
+       # "mensaje": f"Nuevo incidente cercano asignado al taller {siguiente_taller['taller_nombre']}"
+    #})
 
     db.commit()
-    db.refresh(nueva_asignacion)
 
     return {
-        "mensaje": "Solicitud rechazada. Se envió al siguiente taller cercano.",
-        "sin_taller_disponible": False,
-        "nueva_asignacion": {
-            "id": nueva_asignacion.id,
-            "id_incidente": nueva_asignacion.id_incidente,
-            "id_taller": nueva_asignacion.id_taller,
-            "id_estado_asignacion": nueva_asignacion.id_estado_asignacion
-        }
+        "ok": True,
+        "mensaje": "Solicitud rechazada y reenviada a otro taller cercano.",
+        "reasignado": True,
+        "nuevo_taller": {
+            "id_taller": siguiente_taller["id_taller"],
+            "nombre": siguiente_taller["taller_nombre"],
+            "distancia_km": float(siguiente_taller["distancia_km"])
+        },
+        "nueva_asignacion": nueva_asignacion["id"]
     }
-
+    
 @router.get("/taller/{id_taller}")
 def asignaciones_del_taller(
     id_taller: int,
